@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+
+<head>
+	<title>Knox County Daily COVID Cases Adjusted True Prevalence</title>
+	<style>
+		body {
+			font-family: sans-serif;
+		}
+
+		h2 {
+			font-weight: initial;
+		}
+
+		canvas {
+			border: thin solid gray;
+			margin: 2em 1em;
+		}
+	</style>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@3.8.0/dist/chart.min.js"></script>
+	<script
+		src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+</head>
+
+<body>
+	<h1>Knox County Daily COVID Cases Adjusted True Prevalence</h1>
+	<h2>The blue line uses <a href="https://covid19-projections.com/estimating-true-infections-revisited/">Youyang Gu's
+			formula</a> to combine percent positive tests with new cases to estimate true infections</h2>
+	<canvas id="new_cases" width="400" height="200"></canvas>
+	<canvas id="pct_pos" width="400" height="100"></canvas>
+	<script>
+		"use strict";
+		let dates_2022, counts_2022, counts_dates_2022, pos_2022, pos_dates_2022, adj_2022;
+
+		// wget https://covid.knoxcountytn.gov/js/covid-charts.js on Wednesdays
+		fetch("covid-charts.js")
+			.then(response => response.text())
+			.then(text => process_js(text));
+
+		function process_js(text) {
+			const trim_semi = str => str.replace(/;$/, "");
+			const single_quot = str => str.replace(/'/g, '"');
+
+			const lines = text.split("\n");
+			const vars = {};
+			lines.forEach(line => {
+				line = line.trim();
+				if (line.startsWith("var "))
+					vars[line.split(" ")[1]] = line.split(" = ")[1];
+			});
+
+			counts_2022 = JSON.parse(trim_semi(vars["cumulativeNewCases2022"]));
+			counts_dates_2022 = JSON.parse(single_quot(trim_semi(vars["cumulativeDates2022"])));
+
+			pos_2022 = JSON.parse(trim_semi(vars["percentPositive2022"]));
+			pos_dates_2022 = JSON.parse(single_quot(trim_semi(vars["cumulativeDates2022"])));
+
+			adj_2022 = [];
+			counts_dates_2022.forEach((day, idx) => {
+				// Formula from https://covid19-projections.com/estimating-true-infections-revisited/
+				const START = "2/12/2020";
+				const days_since = mdy => Math.floor((Date.parse(mdy) - Date.parse(START)) / (1000 * 60 * 60 * 24));
+				const pos_idx = pos_dates_2022.indexOf(day);
+				const pct_pos = pos_2022[pos_idx] / 100;
+				const factor = 1000 / (days_since(day) + 10) * Math.sqrt(pct_pos) + 2;
+				adj_2022[idx] = Math.round(factor * counts_2022[idx]);
+			});
+			draw_chart();
+		}
+
+		function draw_chart() {
+			const new_cases = document.getElementById('new_cases').getContext('2d');
+			const cases_chart = new Chart(new_cases, {
+				type: 'line',
+				data: {
+					labels: counts_dates_2022,
+					datasets: [{
+						label: 'New cases per day',
+						data: counts_2022,
+						borderWidth: 1,
+						borderColor: "red"
+					}, {
+						label: 'Adjusted cases per day',
+						data: adj_2022,
+						borderWidth: 1,
+						borderColor: "blue"
+					}]
+				},
+				options: {
+					scales: {
+						x: {
+							grid: {
+								display: false
+							}
+						},
+						y: {
+							beginAtZero: true,
+							ticks: {
+								stepSize: 100
+							},
+							position: "right"
+						}
+					},
+					plugins: {
+						autocolors: false,
+						/*				annotation: {
+											annotations: {
+												line1: {
+													type: 'line',
+													yMin: 60,
+													yMax: 60,
+													borderColor: 'rgb(255, 99, 132)',
+													borderWidth: 2
+												}
+											}
+										}*/
+					}
+				}
+			});
+
+			const pct_pos = document.getElementById('pct_pos').getContext('2d');
+			const pos_chart = new Chart(pct_pos, {
+				type: 'bar',
+				data: {
+					labels: pos_dates_2022,
+					datasets: [{
+						label: 'Percent of daily tests returning positive',
+						data: pos_2022,
+						borderWidth: 1
+					}]
+				},
+				options: {
+					scales: {
+						x: {
+							grid: {
+								display: false
+							}
+						},
+						y: {
+							beginAtZero: true,
+							position: "right"
+						}
+					}
+				}
+			});
+		}
+	</script>
+</body>
+
+</html>
